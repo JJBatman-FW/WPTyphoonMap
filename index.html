@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>颱風生成位置與聖嬰現象動態地圖</title>
+    
+    <!-- 引入 Leaflet 地圖套件的 CSS 與 JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- 引入 PapaParse 用來讀取 Google 試算表 CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #map {
+            width: 100vw;
+            height: 100vh;
+        }
+        /* 時間控制面板樣式 */
+        #controls {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            width: 80%;
+            max-width: 700px;
+        }
+        #playBtn {
+            padding: 8px 15px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            background-color: #0078A8;
+            color: white;
+            border-radius: 5px;
+            font-weight: bold;
+            min-width: 80px;
+        }
+        #playBtn:hover { background-color: #005a7d; }
+        #slider { flex-grow: 1; cursor: pointer; }
+        #yearDisplay {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+            min-width: 60px;
+            text-align: center;
+        }
+        /* 圖例樣式 */
+        .legend {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            font-size: 14px;
+        }
+        .legend-item { display: flex; align-items: center; margin-bottom: 8px; }
+        .legend-item:last-child { margin-bottom: 0; }
+        .dot {
+            height: 14px;
+            width: 14px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        /* 載入中提示 */
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2000;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            font-size: 18px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading">讀取 Google 試算表資料中...</div>
+    <div id="map"></div>
+    
+    <!-- 圖例 -->
+    <div class="legend">
+        <strong>ENSO 狀態</strong><hr style="margin:5px 0;">
+        <div class="legend-item"><span class="dot" style="background: red;"></span>聖嬰年</div>
+        <div class="legend-item"><span class="dot" style="background: blue;"></span>反聖嬰年</div>
+        <div class="legend-item"><span class="dot" style="background: green;"></span>正常年</div>
+    </div>
+
+    <!-- 底部時間控制列 -->
+    <div id="controls" style="display: none;">
+        <button id="playBtn">播放</button>
+        <input type="range" id="slider" min="0" max="100" value="0">
+        <div id="yearDisplay">----</div>
+    </div>
+
+    <script>
+        // 1. 初始化地圖 (中心點設於西太平洋)
+        const map = L.map('map').setView([15, 135], 4);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 18
+        }).addTo(map);
+
+        // 用來存放地圖上的所有點，方便每次更新時清除
+        let markerLayer = L.layerGroup().addTo(map);
+
+        // 核心變數
+        let typhoonData = [];
+        let availableYears = [];
+        let currentYearIndex = 0;
+        let playInterval = null;
+
+        // 欄位名稱對應 (請確保與你的試算表一致)
+        const lonCol = '生成經度（E）';
+        const latCol = '生成緯度（N）';
+        const tagCol = '聖嬰/反聖嬰';
+        const dateCol = '生成日期';
+        const nameCol = '颱風名稱';
+
+        // 決定顏色的函數
+        function getColor(tag) {
+            if (!tag) return 'gray';
+            if (tag.includes('反聖嬰')) return 'blue';
+            if (tag.includes('聖嬰')) return 'red';
+            if (tag.includes('正常')) return 'green';
+            return 'gray';
+        }
+
+        // 2. 使用 PapaParse 直接讀取 Google 試算表的 CSV
+        const sheetUrl = "https://docs.google.com/spreadsheets/d/1ESIQYgoVWR8o5CfsIAFwBAg9kaHj9ABZnVpsAnp9-L8/export?format=csv&gid=0";
+        
+        Papa.parse(sheetUrl, {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: function(results) {
+                const rawData = results.data;
+                const yearSet = new Set();
+
+                // 整理資料與萃取年份
+                rawData.forEach(row => {
+                    let lat = parseFloat(row[latCol]);
+                    let lon = parseFloat(row[lonCol]);
+                    let dateStr = row[dateCol];
+                    
+                    if (!isNaN(lat) && !isNaN(lon) && dateStr) {
+                        let year = dateStr.substring(0, 7); // 假設日期格式為 YYYY-MM-DD
+                        yearSet.add(year);
+                        
+                        typhoonData.push({
+                            lat: lat,
+                            lon: lon,
+                            year: year,
+                            tag: row[tagCol] || '未知',
+                            name: row[nameCol] || '無名',
+                            fullDate: dateStr
+                        });
+                    }
+                });
+
+                // 將年份排序，並準備播放軸
+                availableYears = Array.from(yearSet).sort();
+                
+                if (availableYears.length > 0) {
+                    setupControls();
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('controls').style.display = 'flex';
+                    updateMapForYear(availableYears[0]);
+                } else {
+                    document.getElementById('loading').innerText = '找不到有效的資料，請檢查欄位名稱！';
+                }
+            },
+            error: function(err) {
+                document.getElementById('loading').innerText = '資料讀取失敗，請確認網址權限。';
+                console.error(err);
+            }
+        });
+
+        // 3. 設定控制面板與綁定事件
+        const slider = document.getElementById('slider');
+        const yearDisplay = document.getElementById('yearDisplay');
+        const playBtn = document.getElementById('playBtn');
+
+        function setupControls() {
+            slider.min = 0;
+            slider.max = availableYears.length - 1;
+            slider.value = 0;
+
+            // 拖曳拉桿時即時更新地圖
+            slider.addEventListener('input', function() {
+                currentYearIndex = parseInt(this.value);
+                updateMapForYear(availableYears[currentYearIndex]);
+            });
+
+            // 播放/暫停按鈕
+            playBtn.addEventListener('click', function() {
+                if (playInterval) {
+                    pause();
+                } else {
+                    play();
+                }
+            });
+        }
+
+        // 4. 更新地圖上的標記 (依年份篩選)
+        function updateMapForYear(targetYear) {
+            yearDisplay.innerText = targetYear;
+            markerLayer.clearLayers(); // 清除舊的點
+
+            // 篩選出該年份的颱風並繪製
+            const currentTyphoons = typhoonData.filter(t => t.year === targetYear);
+            
+            currentTyphoons.forEach(t => {
+                let color = getColor(t.tag);
+                let marker = L.circleMarker([t.lat, t.lon], {
+                    radius: 7,
+                    fillColor: color,
+                    color: '#fff',
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                });
+                
+                // 點擊彈出的資訊對話框
+                marker.bindPopup(`
+                    <div style="font-size: 14px;">
+                        <b>年份：</b>${t.year}<br>
+                        <b>日期：</b>${t.fullDate}<br>
+                        <b>名稱：</b>${t.name}<br>
+                        <b>狀態：</b>${t.tag}
+                    </div>
+                `);
+                
+                markerLayer.addLayer(marker);
+            });
+        }
+
+        // 5. 播放控制邏輯
+        function play() {
+            playBtn.innerText = '暫停';
+            playBtn.style.backgroundColor = '#d9534f'; // 改為紅色提醒
+            
+            // 如果已經到最後一年，從頭開始
+            if (currentYearIndex >= availableYears.length - 1) {
+                currentYearIndex = -1; 
+            }
+
+            playInterval = setInterval(function() {
+                currentYearIndex++;
+                if (currentYearIndex >= availableYears.length) {
+                    pause();
+                    return;
+                }
+                slider.value = currentYearIndex;
+                updateMapForYear(availableYears[currentYearIndex]);
+            }, 400); // 這裡調整播放速度 (800毫秒換下一年)
+        }
+
+        function pause() {
+            playBtn.innerText = '播放';
+            playBtn.style.backgroundColor = '#0078A8'; // 恢復藍色
+            clearInterval(playInterval);
+            playInterval = null;
+        }
+    </script>
+</body>
+</html>
