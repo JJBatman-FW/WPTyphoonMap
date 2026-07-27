@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>颱風生成位置與聖嬰現象動態地圖</title>
+    <title>颱風生成位置與聖嬰現象動態地圖 (按月/按年切換)</title>
     
     <!-- 引入 Leaflet 地圖套件的 CSS 與 JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -36,8 +36,8 @@
             display: flex;
             align-items: center;
             gap: 15px;
-            width: 80%;
-            max-width: 700px;
+            width: 85%;
+            max-width: 800px;
         }
         #playBtn {
             padding: 8px 15px;
@@ -52,13 +52,26 @@
         }
         #playBtn:hover { background-color: #005a7d; }
         #slider { flex-grow: 1; cursor: pointer; }
-        #yearDisplay {
+        #timeDisplay {
             font-size: 20px;
             font-weight: bold;
             color: #333;
-            min-width: 60px;
+            min-width: 140px;
             text-align: center;
         }
+        /* 顯示整年切換開關 */
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            background: #f0f0f0;
+            padding: 5px 10px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        .toggle-container input { cursor: pointer; }
+        .toggle-container label { cursor: pointer; font-size: 14px; font-weight: bold; color: #555; }
+        
         /* 圖例樣式 */
         .legend {
             position: absolute;
@@ -103,36 +116,41 @@
     <!-- 圖例 -->
     <div class="legend">
         <strong>ENSO 狀態</strong><hr style="margin:5px 0;">
-        <div class="legend-item"><span class="dot" style="background: red;"></span>聖嬰年</div>
-        <div class="legend-item"><span class="dot" style="background: blue;"></span>反聖嬰年</div>
-        <div class="legend-item"><span class="dot" style="background: green;"></span>正常年</div>
+        <div class="legend-item"><span class="dot" style="background: red;"></span>聖嬰現象</div>
+        <div class="legend-item"><span class="dot" style="background: blue;"></span>反聖嬰現象</div>
+        <div class="legend-item"><span class="dot" style="background: green;"></span>正常</div>
     </div>
 
     <!-- 底部時間控制列 -->
     <div id="controls" style="display: none;">
         <button id="playBtn">播放</button>
         <input type="range" id="slider" min="0" max="100" value="0">
-        <div id="yearDisplay">----</div>
+        <div id="timeDisplay">-------</div>
+        
+        <!-- ⭐️ 新增：顯示整年的切換開關 -->
+        <div class="toggle-container">
+            <input type="checkbox" id="showYearToggle">
+            <label for="showYearToggle">顯示整年</label>
+        </div>
     </div>
 
     <script>
-        // 1. 初始化地圖 (中心點設於西太平洋)
+        // 1. 初始化地圖
         const map = L.map('map').setView([15, 135], 4);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors',
             maxZoom: 18
         }).addTo(map);
 
-        // 用來存放地圖上的所有點，方便每次更新時清除
         let markerLayer = L.layerGroup().addTo(map);
 
         // 核心變數
         let typhoonData = [];
-        let availableYears = [];
-        let currentYearIndex = 0;
+        let availableMonths = [];
+        let currentMonthIndex = 0;
         let playInterval = null;
 
-        // 欄位名稱對應 (請確保與你的試算表一致)
+        // 欄位名稱對應
         const lonCol = '生成經度（E）';
         const latCol = '生成緯度（N）';
         const tagCol = '聖嬰/反聖嬰';
@@ -148,7 +166,7 @@
             return 'gray';
         }
 
-        // 2. 使用 PapaParse 直接讀取 Google 試算表的 CSV
+        // 2. 讀取資料
         const sheetUrl = "https://docs.google.com/spreadsheets/d/1ESIQYgoVWR8o5CfsIAFwBAg9kaHj9ABZnVpsAnp9-L8/export?format=csv&gid=0";
         
         Papa.parse(sheetUrl, {
@@ -157,22 +175,24 @@
             skipEmptyLines: true,
             complete: function(results) {
                 const rawData = results.data;
-                const yearSet = new Set();
+                const monthSet = new Set();
 
-                // 整理資料與萃取年份
+                // 整理資料與萃取時間
                 rawData.forEach(row => {
                     let lat = parseFloat(row[latCol]);
                     let lon = parseFloat(row[lonCol]);
                     let dateStr = row[dateCol];
                     
                     if (!isNaN(lat) && !isNaN(lon) && dateStr) {
-                        let year = dateStr.substring(0, 7); // 假設日期格式為 YYYY-MM-DD
-                        yearSet.add(year);
+                        let monthStr = dateStr.substring(0, 7); // 擷取 YYYY-MM
+                        let yearStr = dateStr.substring(0, 4);  // ⭐️ 新增：擷取年份 YYYY 供整年篩選使用
+                        monthSet.add(monthStr);
                         
                         typhoonData.push({
                             lat: lat,
                             lon: lon,
-                            year: year,
+                            monthStr: monthStr,
+                            yearStr: yearStr,
                             tag: row[tagCol] || '未知',
                             name: row[nameCol] || '無名',
                             fullDate: dateStr
@@ -180,14 +200,14 @@
                     }
                 });
 
-                // 將年份排序，並準備播放軸
-                availableYears = Array.from(yearSet).sort();
+                // 將月份排序
+                availableMonths = Array.from(monthSet).sort();
                 
-                if (availableYears.length > 0) {
+                if (availableMonths.length > 0) {
                     setupControls();
                     document.getElementById('loading').style.display = 'none';
                     document.getElementById('controls').style.display = 'flex';
-                    updateMapForYear(availableYears[0]);
+                    updateMapForMonth(availableMonths[0]);
                 } else {
                     document.getElementById('loading').innerText = '找不到有效的資料，請檢查欄位名稱！';
                 }
@@ -198,23 +218,22 @@
             }
         });
 
-        // 3. 設定控制面板與綁定事件
+        // 3. 設定控制面板
         const slider = document.getElementById('slider');
-        const yearDisplay = document.getElementById('yearDisplay');
+        const timeDisplay = document.getElementById('timeDisplay');
         const playBtn = document.getElementById('playBtn');
+        const showYearToggle = document.getElementById('showYearToggle'); // ⭐️ 取得開關元素
 
         function setupControls() {
             slider.min = 0;
-            slider.max = availableYears.length - 1;
+            slider.max = availableMonths.length - 1;
             slider.value = 0;
 
-            // 拖曳拉桿時即時更新地圖
             slider.addEventListener('input', function() {
-                currentYearIndex = parseInt(this.value);
-                updateMapForYear(availableYears[currentYearIndex]);
+                currentMonthIndex = parseInt(this.value);
+                updateMapForMonth(availableMonths[currentMonthIndex]);
             });
 
-            // 播放/暫停按鈕
             playBtn.addEventListener('click', function() {
                 if (playInterval) {
                     pause();
@@ -222,15 +241,35 @@
                     play();
                 }
             });
+
+            // ⭐️ 當切換「顯示整年」開關時，立即重新更新地圖
+            showYearToggle.addEventListener('change', function() {
+                updateMapForMonth(availableMonths[currentMonthIndex]);
+            });
         }
 
-        // 4. 更新地圖上的標記 (依年份篩選)
-        function updateMapForYear(targetYear) {
-            yearDisplay.innerText = targetYear;
-            markerLayer.clearLayers(); // 清除舊的點
+        // 4. 更新地圖上的標記
+        function updateMapForMonth(targetMonth) {
+            const isShowYear = showYearToggle.checked; // 檢查是否有勾選顯示整年
+            const targetYear = targetMonth.substring(0, 4); // 取得當前月份對應的年份
+            
+            // ⭐️ 更新顯示文字：如果是整年模式，顯示「YYYY (整年)」
+            if (isShowYear) {
+                timeDisplay.innerText = targetYear + " (整年)";
+            } else {
+                timeDisplay.innerText = targetMonth;
+            }
+            
+            markerLayer.clearLayers(); 
 
-            // 篩選出該年份的颱風並繪製
-            const currentTyphoons = typhoonData.filter(t => t.year === targetYear);
+            // ⭐️ 篩選邏輯：如果勾選整年，就比對年份 (yearStr)；否則比對月份 (monthStr)
+            const currentTyphoons = typhoonData.filter(t => {
+                if (isShowYear) {
+                    return t.yearStr === targetYear;
+                } else {
+                    return t.monthStr === targetMonth;
+                }
+            });
             
             currentTyphoons.forEach(t => {
                 let color = getColor(t.tag);
@@ -243,10 +282,8 @@
                     fillOpacity: 0.8
                 });
                 
-                // 點擊彈出的資訊對話框
                 marker.bindPopup(`
                     <div style="font-size: 14px;">
-                        <b>年份：</b>${t.year}<br>
                         <b>日期：</b>${t.fullDate}<br>
                         <b>名稱：</b>${t.name}<br>
                         <b>狀態：</b>${t.tag}
@@ -257,30 +294,45 @@
             });
         }
 
-        // 5. 播放控制邏輯
+        // 5. 播放控制
         function play() {
             playBtn.innerText = '暫停';
-            playBtn.style.backgroundColor = '#d9534f'; // 改為紅色提醒
+            playBtn.style.backgroundColor = '#d9534f';
             
-            // 如果已經到最後一年，從頭開始
-            if (currentYearIndex >= availableYears.length - 1) {
-                currentYearIndex = -1; 
+            // 如果已經到最後一個，從頭開始
+            if (currentMonthIndex >= availableMonths.length - 1) {
+                currentMonthIndex = -1; 
             }
 
             playInterval = setInterval(function() {
-                currentYearIndex++;
-                if (currentYearIndex >= availableYears.length) {
+                
+                // ⭐️ 新增邏輯：如果是整年模式，自動把索引快轉到該年的最後一個月
+                if (showYearToggle.checked && currentMonthIndex !== -1) {
+                    let currentYear = availableMonths[currentMonthIndex].substring(0, 4);
+                    // 只要下個月還是同一年，就繼續往後找
+                    while (currentMonthIndex + 1 < availableMonths.length && 
+                           availableMonths[currentMonthIndex + 1].substring(0, 4) === currentYear) {
+                        currentMonthIndex++;
+                    }
+                }
+                
+                // 進入下一個時間點 (如果上面有快轉，這裡就會剛好跳到下一年)
+                currentMonthIndex++;
+
+                if (currentMonthIndex >= availableMonths.length) {
                     pause();
                     return;
                 }
-                slider.value = currentYearIndex;
-                updateMapForYear(availableYears[currentYearIndex]);
-            }, 400); // 這裡調整播放速度 (800毫秒換下一年)
+                
+                slider.value = currentMonthIndex;
+                updateMapForMonth(availableMonths[currentMonthIndex]);
+                
+            }, 600); // 600毫秒切換一次
         }
 
         function pause() {
             playBtn.innerText = '播放';
-            playBtn.style.backgroundColor = '#0078A8'; // 恢復藍色
+            playBtn.style.backgroundColor = '#0078A8';
             clearInterval(playInterval);
             playInterval = null;
         }
