@@ -4,569 +4,468 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>颱風生成位置與海溫動態地圖</title>
+    <title>颱風生成與 ENSO 關係地圖 (連動年份路徑查詢)</title>
 
-    <!-- 引入 Leaflet 地圖套件的 CSS 與 JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-    <!-- 引入 PapaParse 用來讀取 Google 試算表 CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
     <style>
         body {
             margin: 0;
             padding: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: sans-serif;
+            background-color: #111;
+            color: #fff;
         }
 
         #map {
             width: 100vw;
             height: 100vh;
-            background-color: #ffffff;
-            /* ⭐️ 新增這行：將地圖預設底色改為白色 */
         }
 
-        /* 時間控制面板樣式 */
         #controls {
             position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
+            top: 20px;
+            left: 20px;
             z-index: 1000;
-            /* 確保懸浮於 Leaflet 地圖之上 */
-            background: rgba(255, 255, 255, 0.95);
-            padding: 10px 20px;
+            background: rgba(30, 30, 30, 0.85);
+            padding: 15px;
             border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+            width: 260px;
+        }
 
-            /* 預設使用 Flexbox 單排顯示 */
+        h3 {
+            margin-top: 0;
+            font-size: 16px;
+            color: #ddd;
+        }
+
+        .btn {
+            background-color: #444;
+            color: white;
+            border: 1px solid #666;
+            padding: 8px 12px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-right: 2px;
+            margin-bottom: 5px;
+            width: 48%;
+        }
+
+        .btn:hover {
+            background-color: #666;
+        }
+
+        .custom-cross {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 15px;
-            /* 元素之間的間距 */
-            width: max-content;
-            max-width: 95%;
-            /* 防止螢幕稍微縮小時超出邊界 */
-            flex-wrap: wrap;
-            /* 允許視窗變小時自動換行 */
         }
 
-        #playBtn {
-            padding: 8px 15px;
-            font-size: 16px;
-            cursor: pointer;
-            border: none;
-            background-color: #0078A8;
-            color: white;
-            border-radius: 5px;
-            font-weight: bold;
-            min-width: 80px;
+        .tooltip-custom {
+            font-family: sans-serif;
+            text-align: center;
         }
 
-        #playBtn:hover {
-            background-color: #005a7d;
+        .track-tooltip {
+            font-family: sans-serif;
+            text-align: left;
+            line-height: 1.4;
         }
 
-        #slider {
-            min-width: 150px;
-            cursor: pointer;
-        }
-
-        #timeDisplay {
-            font-weight: bold;
-            white-space: nowrap;
-            color: #333;
-        }
-
-        .toggle-container {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            white-space: nowrap;
-        }
-
-        .toggle-container input {
-            cursor: pointer;
-        }
-
-        .toggle-container label {
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
-            color: #555;
-        }
-
-        /* 圖例樣式 */
-        .legend {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 15px;
-            border-radius: 8px;
-            z-index: 1000;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        .track-tooltip b {
+            color: #2c5282;
             font-size: 14px;
         }
 
-        .legend-item {
-            display: flex;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-
-        .legend-item:last-child {
-            margin-bottom: 0;
-        }
-
-        .dot {
-            height: 14px;
-            width: 14px;
-            border-radius: 50%;
+        .level-badge {
             display: inline-block;
-            margin-right: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: white;
+            font-size: 12px;
+            margin-bottom: 4px;
         }
 
-        #loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 2000;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            font-size: 18px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-        }
-
-        @media (max-width: 768px) {
-            #controls {
-                bottom: 15px;
-                padding: 12px 15px;
-                width: 90%;
-                display: grid;
-                grid-template-columns: auto 1fr;
-                grid-template-rows: auto auto auto;
-                gap: 12px 10px;
-            }
-
-            /* ⭐️ 修改：第一排的按鈕群組與進度條 */
-            #playback-buttons {
-                grid-column: 1 / 2;
-                grid-row: 1 / 2;
-                /* 確保三個按鈕在手機上也是橫向緊密排列 */
-                display: flex;
-                gap: 3px;
-            }
-
-            #playback-buttons button {
-                padding: 5px 8px;
-                /* 稍微調整按鈕內距適應手機 */
-            }
-
-            #slider {
-                grid-column: 2 / 3;
-                grid-row: 1 / 2;
-                width: 100%;
-            }
-
-            /* (保留原有的 #timeDisplay 與 .toggle-container 樣式) */
-            #timeDisplay {
-                grid-column: 1 / 3;
-                grid-row: 2 / 3;
-                text-align: center;
-                font-size: 1.1em;
-                padding: 6px 0;
-                border-top: 1px solid #ddd;
-                border-bottom: 1px solid #ddd;
-            }
-
-            .toggle-container:nth-of-type(1) {
-                grid-column: 1 / 2;
-                grid-row: 3 / 4;
-                justify-content: flex-start;
-            }
-
-            .toggle-container:nth-of-type(2) {
-                grid-column: 2 / 3;
-                grid-row: 3 / 4;
-                justify-content: flex-end;
-            }
+        .track-select {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            background-color: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
         }
     </style>
 </head>
 
 <body>
 
-    <div id="loading">讀取資料中...</div>
+    <div id="controls">
+        <h3>颱風生成分析 (1990-2020)</h3>
+        <p id="yearDisplay" style="font-size: 14px; color:#aaa;">目前顯示：載入中...</p>
+        <div style="display: flex; justify-content: space-between;">
+            <button class="btn" onclick="prevYear()">上一年代</button>
+            <button class="btn" onclick="nextYear()">下一年代</button>
+        </div>
+        <hr style="border-color: #555; margin: 10px 0;">
+        <button class="btn" onclick="showAllYears30()"
+            style="background-color: #2c5282; width: 100%;">切換：30年十字總覽</button>
+
+        <hr style="border-color: #555; margin: 15px 0;">
+        <label for="typhoonSelect" style="font-size: 14px; color: #ddd;">🔍 聚焦當年颱風路徑：</label>
+        <select id="typhoonSelect" class="track-select" onchange="switchTrack()">
+            <option value="none">--- 載入中 ---</option>
+        </select>
+    </div>
+
     <div id="map"></div>
 
-    <div class="legend">
-        <strong>ENSO 狀態</strong>
-        <hr style="margin:5px 0;">
-        <div class="legend-item"><span class="dot" style="background: red;"></span>聖嬰現象</div>
-        <div class="legend-item"><span class="dot" style="background: blue;"></span>反聖嬰現象</div>
-        <div class="legend-item"><span class="dot" style="background: green;"></span>正常</div>
-        <hr style="margin:5px 0;">
-        <div style="font-size: 12px; color: #666;">底圖為月/年平均海表面溫度(SST)</div>
-    </div>
-
-    <div id="controls" style="display: none;">
-        <div id="playback-buttons" style="display: flex; gap: 5px;">
-            <button id="prevBtn">上一張</button>
-            <button id="playBtn">播放</button>
-            <button id="nextBtn">下一張</button>
-        </div>
-        <input type="range" id="slider" min="0" max="100" value="0">
-        <div id="timeDisplay">-------</div>
-
-        <div class="toggle-container">
-            <input type="checkbox" id="showSstToggle" checked>
-            <label for="showSstToggle">顯示海溫圖</label>
-        </div>
-
-        <div class="toggle-container">
-            <input type="checkbox" id="showMonthToggle">
-            <!-- 修正：label 的 for 屬性對應到正確的 ID -->
-            <label for="showMonthToggle">逐月顯示</label>
-        </div>
-    </div>
-
     <script>
-        // 1. 初始化地圖
-        const mapBounds = [[0, 100], [60, 190]];
-        const map = L.map('map', {
-            maxBounds: mapBounds,         // 限制地圖拖曳範圍
-            maxBoundsViscosity: 1.0,      // 設為 1.0 表示完全無法將地圖拖出邊界外
-            minZoom: 3                    // 設定最小縮放級別
-        }).setView([30, 145], 4);         // 預設中心點置於西太平洋
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors',
-            maxZoom: 18
+        const map = L.map('map').setView([15.0, 135.0], 4);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+            maxZoom: 10
         }).addTo(map);
 
-        // ⭐️ 新增：建立反向多邊形遮罩 (把範圍外的底圖全遮成白色)
-        const outerRing = [
-            [-90, -360], [90, -360], [90, 360], [-90, 360] // 覆蓋全球的外圈
-        ];
-        const innerRing = [
-            [0, 100],   // 左下角 (南緯0, 東經100)
-            [60, 100],  // 左上角 (北緯60, 東經100)
-            [60, 190],  // 右上角 (北緯60, 西經170/即190)
-            [0, 190]    // 右下角 (南緯0, 西經170/即190)
-        ];
+        const pointsLayerGroup = L.layerGroup().addTo(map);
+        const ellipseLayerGroup = L.layerGroup().addTo(map);
+        const summaryLayerGroup = L.layerGroup();
+        const trackLayerGroup = L.layerGroup().addTo(map);
 
-        L.polygon([outerRing, innerRing], {
-            fillColor: '#ffffff', // 遮罩顏色 (白色)
-            fillOpacity: 1,       // 完全不透明，徹底遮擋底圖
-            stroke: false,        // 不需要外框線
-            interactive: false    // 確保滑鼠可以穿透遮罩，繼續拖曳底層地圖
-        }).addTo(map);
+        const overlays = {
+            "颱風生成點位 (依風速)": pointsLayerGroup,
+            "68% 生成熱區 (橢圓)": ellipseLayerGroup,
+            "動態路徑追蹤": trackLayerGroup
+        };
+        L.control.layers(null, overlays, { collapsed: false }).addTo(map);
 
-        // 初始化海溫圖層 (預先準備好，先不給圖片網址)
-        const sstLayer = L.imageOverlay('', mapBounds, {
-            opacity: 0.4,
-            interactive: false // 避免海溫圖阻擋滑鼠點擊底層地圖
-        }).addTo(map);
+        // ==========================================
+        // 1. 預存的各年颱風路徑資料庫與全域狀態
+        // ==========================================
 
-        // 初始化颱風點位圖層
-        let markerLayer = L.layerGroup().addTo(map);
+        let allTyphoonTracks = {};
+        let yearlyData = [];
+        let currentIndex = 0;
+        let isSummaryMode = false;
+        let currentDisplayedYear = null;
+        
+        // ✨ 新增：記憶「是否正在顯示全部路徑」的狀態變數
+        let isShowingAllTracks = false; 
 
-        let typhoonData = [];
-        let availableMonths = [];
-        let currentMonthIndex = 0;
-        let playInterval = null;
+        const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQDl63WMfspNESxWKp9MqPBwnhOq5m_JWChuAFf1OefJkVUh7vp3ojFeS5k3bYVulu0a-nB6Ag_DCv7/pub?gid=0&single=true&output=csv";
 
-        const lonCol = '生成經度（E）', latCol = '生成緯度（N）', tagCol = '聖嬰/反聖嬰', dateCol = '生成日期', nameCol = '颱風名稱';
-
-        function getColor(tag) {
-            if (!tag) return 'gray';
-            if (tag.includes('反聖嬰')) return 'blue';
-            if (tag.includes('聖嬰')) return 'red';
-            if (tag.includes('正常')) return 'green';
-            return 'gray';
+        function getEnsoColor(ensoState) {
+            if (ensoState === 'ElNino') return '#FF4444';
+            if (ensoState === 'LaNina') return '#4488FF';
+            return '#AAAAAA';
         }
-        // ⭐️ 新增這行：建立平均位置的圖層
-        const avgLocationLayer = L.layerGroup().addTo(map);
+        function getColorByLevel(level) {
+            if (level.includes('強烈')) return '#FF4444';
+            if (level.includes('中度')) return '#FFAA00';
+            if (level.includes('輕度')) return '#4488FF';
+            if (level.includes('熱帶性低氣壓')) return '#AAAAAA';
+            return '#00FF88';
+        }
 
-        // 2. 讀取 Google 試算表
-        const sheetUrl = "https://docs.google.com/spreadsheets/d/1ESIQYgoVWR8o5CfsIAFwBAg9kaHj9ABZnVpsAnp9-L8/export?format=csv&gid=0";
+        function processGoogleSheetsData(rawData) {
+            const groupedData = {};
+            allTyphoonTracks = {}; // 確保每次讀取時先清空
 
-        Papa.parse(sheetUrl, {
+            rawData.forEach(row => {
+                if (!row['編號'] || !row['生成緯度（N）'] || !row['生成經度（E）']) return;
+
+                const idString = String(row['編號']);
+                const year = parseInt(idString.substring(0, 4));
+
+                // 處理 ENSO 狀態
+                let rawEnso = row['聖嬰/反聖嬰'];
+                let ensoState = 'Neutral';
+                if (rawEnso) {
+                    const ensoStr = String(rawEnso);
+                    if (ensoStr.includes('反') || ensoStr.toLowerCase().includes('la')) ensoState = 'LaNina';
+                    else if (ensoStr.includes('聖') || ensoStr.toLowerCase().includes('el')) ensoState = 'ElNino';
+                }
+
+                // 處理生成點基礎資料
+                let maxWind = parseFloat(row['颱風生命期間中心最大風速(m/s)']);
+                if (isNaN(maxWind)) maxWind = 15;
+                let typhoonName = row['颱風名稱'] || row['名稱'] || row['中文譯名'] || row['Name'] || '未知名稱';
+
+                if (!groupedData[year]) groupedData[year] = { year: year, enso: ensoState, points: [] };
+
+                groupedData[year].points.push({
+                    name: typhoonName,
+                    lat: parseFloat(row['生成緯度（N）']),
+                    lon: parseFloat(row['生成經度（E）']),
+                    wind: maxWind
+                });
+
+                // 動態解析儲存格內的 JSON 路徑資料
+                let trackJsonString = row['路徑'];
+
+                if (trackJsonString && trackJsonString.trim().startsWith('[')) {
+                    try {
+                        let trackNodes = JSON.parse(trackJsonString);
+
+                        if (trackNodes.length > 0) {
+                            let tName = trackNodes[0].name;
+                            let tSeason = trackNodes[0].season;
+                            let trackKey = `${tName}_${tSeason}`;
+
+                            allTyphoonTracks[trackKey] = trackNodes;
+                        }
+                    } catch (e) {
+                        console.error(`解析颱風 ${typhoonName} 的路徑資料失敗:`, e);
+                    }
+                }
+            });
+
+            return Object.values(groupedData).sort((a, b) => a.year - b.year);
+        }
+
+        // ==========================================
+        // 2. 動態更新下拉選單
+        // ==========================================
+        function updateTrackDropdown(year) {
+            const select = document.getElementById('typhoonSelect');
+            select.innerHTML = ''; // 清空選單
+
+            // 找出屬於這一年的所有颱風路徑 Key
+            const availableTracks = Object.keys(allTyphoonTracks).filter(key => {
+                return allTyphoonTracks[key][0].season === year;
+            });
+
+            // 預設選項
+            let optNone = document.createElement('option');
+            optNone.value = 'none';
+            optNone.text = '--- 隱藏 / 不顯示路徑 ---';
+            select.appendChild(optNone);
+
+            if (availableTracks.length > 0) {
+                // 如果該年有超過1筆以上的路徑，新增「顯示全部」選項
+                if (availableTracks.length >= 1) {
+                    let optAll = document.createElement('option');
+                    optAll.value = 'all';
+                    optAll.text = `▶ 顯示 ${year} 年全部路徑`;
+                    optAll.style.fontWeight = 'bold';
+                    optAll.style.color = '#4488FF';
+                    select.appendChild(optAll);
+                }
+
+                // 逐一新增該年各個颱風的選項
+                availableTracks.forEach(trackKey => {
+                    let opt = document.createElement('option');
+                    opt.value = trackKey;
+                    let tName = allTyphoonTracks[trackKey][0].name;
+                    opt.text = `${tName} (${year})`;
+                    select.appendChild(opt);
+                });
+            } else {
+                // 若該年無資料，顯示提醒並停用選單
+                let optEmpty = document.createElement('option');
+                optEmpty.value = 'none';
+                optEmpty.text = `(目前資料庫無 ${year} 年路徑)`;
+                optEmpty.disabled = true;
+                select.appendChild(optEmpty);
+            }
+        }
+
+        function loadYear(index) {
+            if (yearlyData.length === 0) return;
+
+            if (isSummaryMode) {
+                map.removeLayer(summaryLayerGroup);
+                map.addLayer(pointsLayerGroup);
+                map.addLayer(ellipseLayerGroup);
+                isSummaryMode = false;
+            }
+
+            pointsLayerGroup.clearLayers();
+            ellipseLayerGroup.clearLayers();
+            trackLayerGroup.clearLayers(); // 切換年份時，自動清空畫布上的路徑
+
+            const data = yearlyData[index];
+            currentDisplayedYear = data.year; 
+
+            let ensoText = data.enso === 'ElNino' ? ' (聖嬰年)' : data.enso === 'LaNina' ? ' (反聖嬰年)' : ' (正常年)';
+            document.getElementById('yearDisplay').innerText = `目前顯示：${data.year} ${ensoText}`;
+
+            // 更新下拉式選單內容
+            const trackSelect = document.getElementById('typhoonSelect');
+            trackSelect.disabled = false;
+            updateTrackDropdown(data.year);
+
+            // ✨ 新增邏輯：檢查並繼承「顯示全部路徑」的狀態
+            if (isShowingAllTracks) {
+                let hasAllOption = Array.from(trackSelect.options).some(opt => opt.value === 'all');
+
+                if (hasAllOption) {
+                    trackSelect.value = 'all';
+                    // 手動觸發 change 事件，繪製新年度的全部路徑
+                    trackSelect.dispatchEvent(new Event('change')); 
+                } else {
+                    isShowingAllTracks = false; // 該年無資料，重置狀態
+                }
+            }
+
+            let latSum = 0, lonSum = 0;
+            data.points.forEach(p => {
+                let radiusSize = p.wind * 0.4;
+                let tooltipContent = `<div class="tooltip-custom"><b>${p.name}</b><br>風速: ${p.wind} m/s</div>`;
+
+                L.circleMarker([p.lat, p.lon], {
+                    radius: radiusSize, color: getEnsoColor(data.enso), fillColor: getEnsoColor(data.enso),
+                    fillOpacity: 0.5, weight: 1
+                }).bindTooltip(tooltipContent).addTo(pointsLayerGroup);
+
+                latSum += p.lat; lonSum += p.lon;
+            });
+
+            if (data.points.length > 1) {
+                let centerLat = latSum / data.points.length;
+                let centerLon = lonSum / data.points.length;
+                let varLat = 0, varLon = 0;
+                data.points.forEach(p => {
+                    varLat += Math.pow(p.lat - centerLat, 2); varLon += Math.pow(p.lon - centerLon, 2);
+                });
+                let stdDevLat = Math.sqrt(varLat / data.points.length);
+                let stdDevLon = Math.sqrt(varLon / data.points.length);
+
+                let ellipsePoints = [];
+                for (let i = 0; i <= 360; i += 5) {
+                    let rad = i * Math.PI / 180;
+                    ellipsePoints.push([centerLat + stdDevLat * Math.sin(rad), centerLon + stdDevLon * Math.cos(rad)]);
+                }
+
+                L.polygon(ellipsePoints, {
+                    color: getEnsoColor(data.enso), fillColor: getEnsoColor(data.enso),
+                    fillOpacity: 0.1, weight: 2, dashArray: '5, 5', interactive: false
+                }).addTo(ellipseLayerGroup);
+            }
+        }
+
+        // 獨立繪製單一颱風路徑的函式
+        function drawSingleTrack(targetData, allLatLngsCollector) {
+            const trackLatLngs = targetData.map(point => {
+                allLatLngsCollector.push([point.lat, point.lon]); 
+                return [point.lat, point.lon];
+            });
+
+            L.polyline(trackLatLngs, { color: '#FFFFFF', weight: 2, dashArray: '4, 6', opacity: 0.6 }).addTo(trackLayerGroup);
+
+            targetData.forEach(point => {
+                let radiusSize = point.tokyo_wind * 0.4;
+                let pointColor = getColorByLevel(point.level);
+                let tooltipContent = `
+                    <div class="track-tooltip">
+                        <b>${point.name} (${point.season})</b><br>
+                        <span class="level-badge" style="background-color: ${pointColor};">${point.level}</span><br>
+                        時間：${point.iso_time}<br>
+                        風速：${point.tokyo_wind} m/s<br>
+                        氣壓：${point.tokyo_pres} hPa
+                    </div>
+                `;
+                L.circleMarker([point.lat, point.lon], {
+                    radius: radiusSize, color: pointColor, fillColor: pointColor, fillOpacity: 0.8, weight: 1.5
+                }).bindTooltip(tooltipContent).addTo(trackLayerGroup);
+            });
+        }
+
+        function switchTrack() {
+            trackLayerGroup.clearLayers();
+            const selectedValue = document.getElementById('typhoonSelect').value;
+            
+            // ✨ 新增邏輯：更新全域變數記憶狀態
+            if (selectedValue === 'all') {
+                isShowingAllTracks = true;
+            } else {
+                isShowingAllTracks = false; 
+            }
+
+            if (selectedValue === 'none') return;
+
+            let allLatLngsToFit = [];
+
+            if (selectedValue === 'all') {
+                // 找出當年所有的路徑並全部畫出
+                const availableTracks = Object.keys(allTyphoonTracks).filter(key => allTyphoonTracks[key][0].season === currentDisplayedYear);
+                availableTracks.forEach(trackKey => {
+                    drawSingleTrack(allTyphoonTracks[trackKey], allLatLngsToFit);
+                });
+            } else {
+                // 畫出單一指定的颱風
+                const targetData = allTyphoonTracks[selectedValue];
+                if (targetData) drawSingleTrack(targetData, allLatLngsToFit);
+            }
+
+            // 對焦至(所有)軌跡
+            if (allLatLngsToFit.length > 0) {
+                map.fitBounds(L.polyline(allLatLngsToFit).getBounds(), { padding: [50, 50], maxZoom: 7 });
+            }
+        }
+
+        function showAllYears30() {
+            if (yearlyData.length === 0) return;
+            isSummaryMode = true;
+
+            map.removeLayer(pointsLayerGroup);
+            map.removeLayer(ellipseLayerGroup);
+            trackLayerGroup.clearLayers(); // 隱藏路徑
+            map.addLayer(summaryLayerGroup);
+            summaryLayerGroup.clearLayers();
+
+            document.getElementById('yearDisplay').innerText = '目前顯示：30年中心點總覽';
+
+            // 30年模式停用選單
+            const select = document.getElementById('typhoonSelect');
+            select.innerHTML = '<option value="none">三十年總覽模式不顯示路徑</option>';
+            select.disabled = true;
+
+            yearlyData.forEach(data => {
+                if (data.points.length === 0) return;
+                let latSum = 0, lonSum = 0;
+                data.points.forEach(p => { latSum += p.lat; lonSum += p.lon; });
+                let centerLat = latSum / data.points.length;
+                let centerLon = lonSum / data.points.length;
+                let crossColor = getEnsoColor(data.enso);
+
+                let crossIcon = L.divIcon({
+                    className: 'custom-cross',
+                    html: `<div style="color: ${crossColor}; font-size: 24px; font-weight: bold; line-height: 1; text-align: center; text-shadow: 1px 1px 2px #000;">+</div>`,
+                    iconSize: [24, 24], iconAnchor: [12, 12]
+                });
+
+                L.marker([centerLat, centerLon], { icon: crossIcon }).bindTooltip(`${data.year} 中心點`).addTo(summaryLayerGroup);
+            });
+        }
+
+        function nextYear() {
+            if (yearlyData.length === 0) return;
+            currentIndex = (currentIndex + 1) % yearlyData.length;
+            loadYear(currentIndex);
+        }
+
+        function prevYear() {
+            if (yearlyData.length === 0) return;
+            currentIndex = (currentIndex - 1 + yearlyData.length) % yearlyData.length;
+            loadYear(currentIndex);
+        }
+
+        Papa.parse(csvUrl, {
             download: true, header: true, skipEmptyLines: true,
             complete: function (results) {
-                const rawData = results.data;
-                const yearsSet = new Set(); // ⭐️ 改成收集「年份」就好
-
-                rawData.forEach(row => {
-                    let lat = parseFloat(row[latCol]);
-                    let lon = parseFloat(row[lonCol]);
-                    let dateStr = row[dateCol];
-
-                    if (!isNaN(lat) && !isNaN(lon) && dateStr) {
-                        let monthStr = dateStr.substring(0, 7); // YYYY-MM
-                        let yearStr = dateStr.substring(0, 4);  // YYYY
-
-                        yearsSet.add(yearStr); // 記錄出現過的年份
-
-                        typhoonData.push({
-                            lat: lat, lon: lon, monthStr: monthStr, yearStr: yearStr,
-                            tag: row[tagCol] || '未知', name: row[nameCol] || '無名', fullDate: dateStr
-                        });
-                    }
-                });
-
-                // ⭐️ 核心修改：自動生成從「最早年份」到「最晚年份」的完整 1~12 月陣列
-                const years = Array.from(yearsSet).sort();
-                availableMonths = [];
-
-                if (years.length > 0) {
-                    const minYear = parseInt(years[0]);
-                    const maxYear = parseInt(years[years.length - 1]);
-
-                    for (let y = minYear; y <= maxYear; y++) {
-                        for (let m = 1; m <= 12; m++) {
-                            // 將月份補齊為兩位數，例如 1 -> "01"
-                            let mm = m < 10 ? '0' + m : '' + m;
-                            availableMonths.push(`${y}-${mm}`); // 格式為 "YYYY-MM"
-                        }
-                    }
-                }
-
-                if (availableMonths.length > 0) {
-                    setupControls();
-                    document.getElementById('loading').style.display = 'none';
-                    document.getElementById('controls').style.display = 'flex';
-                    updateMapForMonth(availableMonths[0]);
-                }
+                console.log("資料下載完成！");
+                yearlyData = processGoogleSheetsData(results.data);
+                if (yearlyData.length > 0) loadYear(0);
+                else document.getElementById('yearDisplay').innerText = '資料載入失敗或無有效資料。';
             }
         });
-
-
-        const slider = document.getElementById('slider');
-        const timeDisplay = document.getElementById('timeDisplay');
-        const playBtn = document.getElementById('playBtn');
-        // ⭐️ 新增：抓取上一張與下一張按鈕
-        const prevBtn = document.getElementById('prevBtn');
-        const nextBtn = document.getElementById('nextBtn');
-        // 修正 1：正確抓取 showMonthToggle，移除舊的 showYearToggle
-        const showMonthToggle = document.getElementById('showMonthToggle');
-        // ⭐️ 新增：抓取海溫開關元素
-        const showSstToggle = document.getElementById('showSstToggle');
-
-        function setupControls() {
-            slider.min = 0;
-            slider.max = availableMonths.length - 1;
-            slider.value = 0;
-
-            slider.addEventListener('input', function () {
-                currentMonthIndex = parseInt(this.value);
-                updateMapForMonth(availableMonths[currentMonthIndex]);
-            });
-
-            playBtn.addEventListener('click', function () {
-                if (playInterval) pause();
-                else play();
-            });
-
-            // ⭐️ 新增：上一張按鈕事件
-            prevBtn.addEventListener('click', function () {
-                if (showMonthToggle.checked) {
-                    // 逐月模式：單純退 1 步
-                    if (currentMonthIndex > 0) currentMonthIndex--;
-                } else {
-                    // 逐年模式：往前尋找「上一個年份」
-                    const currentYear = availableMonths[currentMonthIndex].substring(0, 4);
-                    let foundIndex = 0; // 預設停在第一筆(最舊)
-
-                    for (let i = currentMonthIndex - 1; i >= 0; i--) {
-                        const checkYear = availableMonths[i].substring(0, 4);
-                        if (checkYear < currentYear) {
-                            // 找到了上一個年份！為了確保停在該年的「第一個月」，繼續往前推
-                            foundIndex = i;
-                            while (foundIndex > 0 && availableMonths[foundIndex - 1].substring(0, 4) === checkYear) {
-                                foundIndex--;
-                            }
-                            break;
-                        }
-                    }
-                    currentMonthIndex = foundIndex;
-                }
-
-                slider.value = currentMonthIndex; // 同步更新滑桿位置
-                updateMapForMonth(availableMonths[currentMonthIndex]); // 更新地圖
-            });
-
-            // ⭐️ 新增：下一張按鈕事件
-            nextBtn.addEventListener('click', function () {
-                if (showMonthToggle.checked) {
-                    // 逐月模式：單純進 1 步
-                    if (currentMonthIndex < availableMonths.length - 1) currentMonthIndex++;
-                } else {
-                    // 逐年模式：往後尋找「下一個年份」的第一個月
-                    const currentYear = availableMonths[currentMonthIndex].substring(0, 4);
-                    let foundIndex = availableMonths.length - 1; // 預設停在最後一筆(最新)
-
-                    for (let i = currentMonthIndex + 1; i < availableMonths.length; i++) {
-                        if (availableMonths[i].substring(0, 4) > currentYear) {
-                            foundIndex = i;
-                            break;
-                        }
-                    }
-                    currentMonthIndex = foundIndex;
-                }
-
-                slider.value = currentMonthIndex; // 同步更新滑桿位置
-                updateMapForMonth(availableMonths[currentMonthIndex]); // 更新地圖
-            });
-
-            // 修正 2：使用 showMonthToggle 綁定事件
-            showMonthToggle.addEventListener('change', function () {
-                updateMapForMonth(availableMonths[currentMonthIndex]);
-            });
-
-            // ⭐️ 新增：當海溫開關改變時，即時調整圖層透明度 (0.4 或 0)
-            showSstToggle.addEventListener('change', function () {
-                sstLayer.setOpacity(this.checked ? 0.4 : 0);
-            });
-        }
-
-        // 3. 更新地圖核心邏輯
-        function updateMapForMonth(targetMonth) { // targetMonth 格式為 "YYYY-MM"
-            // 修正 3：加入 targetYear 定義
-            const targetYear = targetMonth.substring(0, 4);
-            const isShowMonth = showMonthToggle.checked;
-            const isShowYear = !isShowMonth; // 如果沒勾選逐月，就是逐年
-
-            sstLayer.setOpacity(showSstToggle.checked ? 0.4 : 0);
-
-            if (isShowYear) {
-                // 【整年模式】 (預設)
-                timeDisplay.innerText = targetYear + " (整年)";
-                const yearlyImageUrl = `sst_images/sst_${targetYear}.png`;
-                sstLayer.setUrl(yearlyImageUrl);
-            } else {
-                // 【單月模式】 (勾選時)
-                timeDisplay.innerText = targetMonth;
-                const monthlyImageUrl = `sst_images/sst_${targetMonth}.png`;
-                sstLayer.setUrl(monthlyImageUrl);
-            }
-
-            // ⭐️ 更新前先清空原本的颱風點位與平均位置圖層
-            markerLayer.clearLayers();
-            if (typeof avgLocationLayer !== 'undefined') {
-                avgLocationLayer.clearLayers();
-            }
-
-            // 篩選當前需要顯示的颱風資料
-            const currentTyphoons = typhoonData.filter(t => {
-                return isShowYear ? t.yearStr === targetYear : t.monthStr === targetMonth;
-            });
-
-            // 準備計算平均經緯度的變數
-            let sumLat = 0;
-            let sumLon = 0;
-
-            // 繪製各別颱風點位並累加經緯度
-            currentTyphoons.forEach(t => {
-                // 1. 繪製個別點位
-                let marker = L.circleMarker([t.lat, t.lon], {
-                    radius: 7, fillColor: getColor(t.tag), color: '#fff', weight: 1, opacity: 1, fillOpacity: 0.8
-                });
-                marker.bindPopup(`
-            <div style="font-size: 14px;">
-                <b>日期：</b>${t.fullDate}<br>
-                <b>名稱：</b>${t.name}<br>
-                <b>狀態：</b>${t.tag}
-            </div>
-        `);
-                markerLayer.addLayer(marker);
-
-                // 2. 累加經緯度
-                sumLat += t.lat;
-                sumLon += t.lon;
-            });
-
-            // ⭐️ 新增：如果有颱風資料，則計算並繪製平均位置十字標記
-            if (currentTyphoons.length > 0 && typeof avgLocationLayer !== 'undefined') {
-                let avgLat = sumLat / currentTyphoons.length;
-                let avgLon = sumLon / currentTyphoons.length;
-
-                // 取該時期第一筆資料的 ENSO 標籤作為代表顏色判斷
-                let periodTag = currentTyphoons[0].tag;
-                let crossColor = '#000000'; // 預設黑色
-
-                // 根據標籤決定十字顏色 (對應您原本的標籤規則)
-                if (periodTag.includes('反聖嬰')) {
-                    crossColor = '#2196F3'; // 藍色
-                } else if (periodTag.includes('聖嬰')) {
-                    crossColor = '#F44336'; // 紅色
-                } else if (periodTag.includes('正常') || periodTag.includes('中性')) {
-                    crossColor = '#4CAF50'; // 綠色
-                }
-
-                // 建立十字符號圖示 (加入白底陰影增加辨識度)
-                const crossIcon = L.divIcon({
-                    className: 'custom-cross-icon',
-                    html: `<div style="
-                color: ${crossColor}; 
-                font-size: 32px; 
-                font-weight: bold; 
-                text-align: center; 
-                line-height: 24px; 
-                text-shadow: 2px 2px 3px rgba(255,255,255,0.8), -2px -2px 3px rgba(255,255,255,0.8), 2px -2px 3px rgba(255,255,255,0.8), -2px 2px 3px rgba(255,255,255,0.8);
-            ">+</div>`,
-                    iconSize: [24, 24],
-                    iconAnchor: [12, 12] // 中心點對齊座標
-                });
-
-                // 將平均位置標記加到地圖上，附帶滑鼠懸停資訊
-                L.marker([avgLat, avgLon], { icon: crossIcon })
-                    .bindTooltip(
-                        `<b>平均生成位置</b><br>緯度: ${avgLat.toFixed(2)}<br>經度: ${avgLon.toFixed(2)}<br>狀態: ${periodTag}`,
-                        { direction: 'top', offset: [0, -10] }
-                    )
-                    .addTo(avgLocationLayer);
-            }
-        }
-
-        // 4. 播放邏輯
-        function play() {
-            playBtn.innerText = '暫停';
-            playBtn.style.backgroundColor = '#d9534f';
-
-            if (currentMonthIndex >= availableMonths.length - 1) currentMonthIndex = -1;
-
-            playInterval = setInterval(function () {
-                // 修正 4：播放邏輯對應「未勾選逐月」即代表整年跳轉
-                if (!showMonthToggle.checked && currentMonthIndex !== -1) {
-                    let currentYear = availableMonths[currentMonthIndex].substring(0, 4);
-                    while (currentMonthIndex + 1 < availableMonths.length &&
-                        availableMonths[currentMonthIndex + 1].substring(0, 4) === currentYear) {
-                        currentMonthIndex++;
-                    }
-                }
-
-                currentMonthIndex++;
-                if (currentMonthIndex >= availableMonths.length) {
-                    pause();
-                    return;
-                }
-                slider.value = currentMonthIndex;
-                updateMapForMonth(availableMonths[currentMonthIndex]);
-            }, 400);
-        }
-
-        function pause() {
-            playBtn.innerText = '播放';
-            playBtn.style.backgroundColor = '#0078A8';
-            clearInterval(playInterval);
-            playInterval = null;
-        }
     </script>
 </body>
 
