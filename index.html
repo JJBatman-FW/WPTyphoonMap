@@ -4,59 +4,215 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>颱風生成與 ENSO 關係地圖 (連動年份路徑查詢)</title>
+    <title>颱風分析儀表板 (WPTyphoon)</title>
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
     <style>
-        body {
+        body,
+        html {
             margin: 0;
             padding: 0;
-            font-family: sans-serif;
+            height: 100%;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #111;
             color: #fff;
+            overflow: hidden;
         }
 
         #map {
             width: 100vw;
             height: 100vh;
+            z-index: 1;
         }
 
-        #controls {
+        /* 左上角：圖層控制面板 */
+        #control-panel {
             position: absolute;
             top: 20px;
             left: 20px;
+            width: 300px;
+            background: rgba(30, 30, 30, 0.9);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
             z-index: 1000;
-            background: rgba(30, 30, 30, 0.85);
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.5);
             backdrop-filter: blur(5px);
-            width: 260px;
+        }
+
+        /* 畫面下方：時間與氣候控制面板 */
+        #bottom-panel {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 85%;
+            max-width: 900px;
+            background: rgba(30, 30, 30, 0.9);
+            padding: 20px 30px;
+            border-radius: 12px;
+            box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            backdrop-filter: blur(5px);
         }
 
         h3 {
             margin-top: 0;
-            font-size: 16px;
+            font-size: 18px;
             color: #ddd;
+            border-bottom: 2px solid #4488FF;
+            padding-bottom: 8px;
+            margin-bottom: 15px;
         }
 
-        .btn {
-            background-color: #444;
-            color: white;
+        h4 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        #status-display {
+            background: #222;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            text-align: center;
+            color: #4488FF;
+            font-weight: bold;
+            border: 1px solid #444;
+        }
+
+        .panel-section {
+            margin-bottom: 20px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 15px;
+        }
+
+        .panel-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        /* 播放軸控制區 */
+        .timeline-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .timeline-container button {
+            background: #444;
+            color: #fff;
             border: 1px solid #666;
-            padding: 8px 12px;
+            padding: 8px 15px;
+            border-radius: 6px;
             cursor: pointer;
-            border-radius: 4px;
-            margin-right: 2px;
-            margin-bottom: 5px;
-            width: 48%;
+            font-weight: bold;
+            font-size: 14px;
         }
 
-        .btn:hover {
-            background-color: #666;
+        .timeline-container button:hover {
+            background: #666;
+        }
+
+        input[type="range"] {
+            flex-grow: 1;
+            cursor: pointer;
+            height: 6px;
+            background: #555;
+            border-radius: 5px;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #4488FF;
+            cursor: pointer;
+        }
+
+        #year-display {
+            font-size: 20px;
+            font-weight: bold;
+            color: #4488FF;
+            min-width: 80px;
+            text-align: right;
+        }
+
+        /* 氣候按鈕區 (橫向排列) */
+        .climate-filters-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 15px;
+        }
+
+        .climate-btn {
+            flex: 1;
+            cursor: pointer;
+            border: 1px solid transparent;
+            padding: 10px;
+            border-radius: 6px;
+            color: white;
+            font-weight: bold;
+            text-align: center;
+            font-size: 14px;
+            transition: 0.2s;
+        }
+
+        .climate-btn.elnino {
+            background-color: #800026;
+            border-color: #E31A1C;
+        }
+
+        .climate-btn.neutral {
+            background-color: #005a32;
+            border-color: #238b45;
+        }
+
+        .climate-btn.lanina {
+            background-color: #08306B;
+            border-color: #2171B5;
+        }
+
+        .climate-btn:hover {
+            filter: brightness(1.2);
+            transform: translateY(-2px);
+        }
+
+        /* 圖層控制區塊 (單選) */
+        .radio-group label {
+            display: block;
+            margin-bottom: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #eee;
+        }
+
+        .radio-group input[type="radio"] {
+            margin-right: 8px;
+            transform: scale(1.1);
+        }
+
+        /* 下拉選單 */
+        select.full-width {
+            width: 100%;
+            background: #2b3a4a;
+            color: white;
+            border: 1px solid #4488FF;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            font-weight: bold;
         }
 
         .custom-cross {
@@ -65,407 +221,566 @@
             justify-content: center;
         }
 
-        .tooltip-custom {
-            font-family: sans-serif;
-            text-align: center;
-        }
-
+        .tooltip-custom,
         .track-tooltip {
             font-family: sans-serif;
-            text-align: left;
             line-height: 1.4;
+            text-align: left;
         }
 
         .track-tooltip b {
             color: #2c5282;
             font-size: 14px;
         }
-
-        .level-badge {
-            display: inline-block;
-            padding: 2px 6px;
-            border-radius: 4px;
-            color: white;
-            font-size: 12px;
-            margin-bottom: 4px;
-        }
-
-        .track-select {
-            width: 100%;
-            padding: 8px;
-            margin-top: 5px;
-            background-color: #333;
-            color: white;
-            border: 1px solid #555;
-            border-radius: 4px;
-            font-size: 14px;
-            cursor: pointer;
-        }
     </style>
 </head>
 
 <body>
 
-    <div id="controls">
-        <h3>颱風生成分析 (1990-2020)</h3>
-        <p id="yearDisplay" style="font-size: 14px; color:#aaa;">目前顯示：載入中...</p>
-        <div style="display: flex; justify-content: space-between;">
-            <button class="btn" onclick="prevYear()">上一年代</button>
-            <button class="btn" onclick="nextYear()">下一年代</button>
-        </div>
-        <hr style="border-color: #555; margin: 10px 0;">
-        <button class="btn" onclick="showAllYears30()"
-            style="background-color: #2c5282; width: 100%;">切換：30年十字總覽</button>
+    <!-- 左上角：空間圖層控制面板 -->
+    <div id="control-panel">
+        <h3>🌀 颱風分析儀表板</h3>
 
-        <hr style="border-color: #555; margin: 15px 0;">
-        <label for="typhoonSelect" style="font-size: 14px; color: #ddd;">🔍 聚焦當年颱風路徑：</label>
-        <select id="typhoonSelect" class="track-select" onchange="switchTrack()">
-            <option value="none">--- 載入中 ---</option>
-        </select>
+        <div id="status-display">資料載入中...</div>
+
+        <!-- 區塊 A：三大主要功能面板 (單選題) -->
+        <div class="panel-section">
+            <h4>🗺️ 1. 分析圖層設定</h4>
+            <div class="radio-group">
+                <label><input type="radio" name="displayMode" value="genesis" checked> 1. 生成位置 (個別點與重心)</label>
+                <label><input type="radio" name="displayMode" value="tracks"> 2. 個別路徑追蹤 (含強度節點)</label>
+                <label><input type="radio" name="displayMode" value="heatmap"> 3. 破壞熱區 (加權密度圖)</label>
+                <label><input type="radio" name="displayMode" value="cluster"> 4. 氣候分群比較 (平均線+背景線)</label>
+            </div>
+        </div>
+
+        <!-- 區塊 B：路徑分群過濾 -->
+        <div class="panel-section">
+            <h4>📌 2. 路徑分群過濾 (Cluster)</h4>
+            <select id="cluster-select" class="full-width">
+                <option value="all">▶ 顯示所有路徑群集 (All)</option>
+            </select>
+        </div>
+
+        <!-- 👇 新增：區塊 C：單一颱風篩選器 -->
+        <div class="panel-section">
+            <h4>🌪️ 3. 單一颱風查詢</h4>
+            <select id="typhoon-select" class="full-width">
+                <option value="all">▶ 顯示範圍內所有颱風 (All)</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- 正下方：時間與氣候狀態面板 -->
+    <div id="bottom-panel">
+        <h4>📅 年份播放軸與氣候狀態</h4>
+
+        <!-- 播放軸 -->
+        <div class="timeline-container">
+            <button id="btn-prev-year">◀</button>
+            <input type="range" id="year-slider" min="2000" max="2025" step="1" value="2000">
+            <button id="btn-next-year">▶</button>
+            <span id="year-display">2000 年</span>
+        </div>
+
+        <!-- 氣候過濾按鈕 -->
+        <div class="climate-filters-row">
+            <button id="btn-elnino" class="climate-btn elnino">🔥 所有聖嬰年 (El Niño)</button>
+            <button id="btn-neutral" class="climate-btn neutral">🟢 所有正常年 (Neutral)</button>
+            <button id="btn-lanina" class="climate-btn lanina">❄️ 所有反聖嬰年 (La Niña)</button>
+        </div>
     </div>
 
     <div id="map"></div>
 
     <script>
-        const map = L.map('map').setView([15.0, 135.0], 4);
+        // ==========================================
+        // 0. 地圖與圖層初始化
+        // ==========================================
+        const map = L.map('map', { zoomControl: false }).setView([18.0, 130.0], 4);
+        L.control.zoom({ position: 'topright' }).addTo(map); // 將縮放按鈕移到右上角以免干擾面板
+
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-            maxZoom: 10
+            attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 10
         }).addTo(map);
 
-        const pointsLayerGroup = L.layerGroup().addTo(map);
-        const ellipseLayerGroup = L.layerGroup().addTo(map);
-        const summaryLayerGroup = L.layerGroup();
-        const trackLayerGroup = L.layerGroup().addTo(map);
-
-        const overlays = {
-            "颱風生成點位 (依風速)": pointsLayerGroup,
-            "68% 生成熱區 (橢圓)": ellipseLayerGroup,
-            "動態路徑追蹤": trackLayerGroup
-        };
-        L.control.layers(null, overlays, { collapsed: false }).addTo(map);
+        const pointsLayer = L.layerGroup().addTo(map);
+        const tracksLayer = L.layerGroup().addTo(map);
+        const heatmapLayer = L.layerGroup().addTo(map);
 
         // ==========================================
-        // 1. 預存的各年颱風路徑資料庫與全域狀態
+        // 1. 全域變數與狀態
         // ==========================================
-
-        let allTyphoonTracks = {};
-        let yearlyData = [];
-        let currentIndex = 0;
-        let isSummaryMode = false;
-        let currentDisplayedYear = null;
-        
-        // ✨ 新增：記憶「是否正在顯示全部路徑」的狀態變數
-        let isShowingAllTracks = false; 
-
         const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQDl63WMfspNESxWKp9MqPBwnhOq5m_JWChuAFf1OefJkVUh7vp3ojFeS5k3bYVulu0a-nB6Ag_DCv7/pub?gid=0&single=true&output=csv";
 
-        function getEnsoColor(ensoState) {
-            if (ensoState === 'ElNino') return '#FF4444';
-            if (ensoState === 'LaNina') return '#4488FF';
-            return '#AAAAAA';
-        }
-        function getColorByLevel(level) {
-            if (level.includes('強烈')) return '#FF4444';
-            if (level.includes('中度')) return '#FFAA00';
-            if (level.includes('輕度')) return '#4488FF';
-            if (level.includes('熱帶性低氣壓')) return '#AAAAAA';
-            return '#00FF88';
-        }
+        let parsedData = [];
+        let uniqueYears = [];
+        let uniqueClusters = new Set();
+        let yearToEnsoMap = {};
 
-        function processGoogleSheetsData(rawData) {
-            const groupedData = {};
-            allTyphoonTracks = {}; // 確保每次讀取時先清空
-
-            rawData.forEach(row => {
-                if (!row['編號'] || !row['生成緯度（N）'] || !row['生成經度（E）']) return;
-
-                const idString = String(row['編號']);
-                const year = parseInt(idString.substring(0, 4));
-
-                // 處理 ENSO 狀態
-                let rawEnso = row['聖嬰/反聖嬰'];
-                let ensoState = 'Neutral';
-                if (rawEnso) {
-                    const ensoStr = String(rawEnso);
-                    if (ensoStr.includes('反') || ensoStr.toLowerCase().includes('la')) ensoState = 'LaNina';
-                    else if (ensoStr.includes('聖') || ensoStr.toLowerCase().includes('el')) ensoState = 'ElNino';
-                }
-
-                // 處理生成點基礎資料
-                let maxWind = parseFloat(row['颱風生命期間中心最大風速(m/s)']);
-                if (isNaN(maxWind)) maxWind = 15;
-                let typhoonName = row['颱風名稱'] || row['名稱'] || row['中文譯名'] || row['Name'] || '未知名稱';
-
-                if (!groupedData[year]) groupedData[year] = { year: year, enso: ensoState, points: [] };
-
-                groupedData[year].points.push({
-                    name: typhoonName,
-                    lat: parseFloat(row['生成緯度（N）']),
-                    lon: parseFloat(row['生成經度（E）']),
-                    wind: maxWind
-                });
-
-                // 動態解析儲存格內的 JSON 路徑資料
-                let trackJsonString = row['路徑'];
-
-                if (trackJsonString && trackJsonString.trim().startsWith('[')) {
-                    try {
-                        let trackNodes = JSON.parse(trackJsonString);
-
-                        if (trackNodes.length > 0) {
-                            let tName = trackNodes[0].name;
-                            let tSeason = trackNodes[0].season;
-                            let trackKey = `${tName}_${tSeason}`;
-
-                            allTyphoonTracks[trackKey] = trackNodes;
-                        }
-                    } catch (e) {
-                        console.error(`解析颱風 ${typhoonName} 的路徑資料失敗:`, e);
-                    }
-                }
-            });
-
-            return Object.values(groupedData).sort((a, b) => a.year - b.year);
-        }
+        let filterType = 'year';
+        let filterValue = null;
+        let displayMode = 'genesis';
+        let clusterFilter = 'all';
+        // 👇 新增這兩行
+        let typhoonFilter = 'all'; 
+        let lastBasePoolKey = '';
 
         // ==========================================
-        // 2. 動態更新下拉選單
+        // 2. 資料讀取與解析
         // ==========================================
-        function updateTrackDropdown(year) {
-            const select = document.getElementById('typhoonSelect');
-            select.innerHTML = ''; // 清空選單
-
-            // 找出屬於這一年的所有颱風路徑 Key
-            const availableTracks = Object.keys(allTyphoonTracks).filter(key => {
-                return allTyphoonTracks[key][0].season === year;
-            });
-
-            // 預設選項
-            let optNone = document.createElement('option');
-            optNone.value = 'none';
-            optNone.text = '--- 隱藏 / 不顯示路徑 ---';
-            select.appendChild(optNone);
-
-            if (availableTracks.length > 0) {
-                // 如果該年有超過1筆以上的路徑，新增「顯示全部」選項
-                if (availableTracks.length >= 1) {
-                    let optAll = document.createElement('option');
-                    optAll.value = 'all';
-                    optAll.text = `▶ 顯示 ${year} 年全部路徑`;
-                    optAll.style.fontWeight = 'bold';
-                    optAll.style.color = '#4488FF';
-                    select.appendChild(optAll);
-                }
-
-                // 逐一新增該年各個颱風的選項
-                availableTracks.forEach(trackKey => {
-                    let opt = document.createElement('option');
-                    opt.value = trackKey;
-                    let tName = allTyphoonTracks[trackKey][0].name;
-                    opt.text = `${tName} (${year})`;
-                    select.appendChild(opt);
-                });
-            } else {
-                // 若該年無資料，顯示提醒並停用選單
-                let optEmpty = document.createElement('option');
-                optEmpty.value = 'none';
-                optEmpty.text = `(目前資料庫無 ${year} 年路徑)`;
-                optEmpty.disabled = true;
-                select.appendChild(optEmpty);
-            }
-        }
-
-        function loadYear(index) {
-            if (yearlyData.length === 0) return;
-
-            if (isSummaryMode) {
-                map.removeLayer(summaryLayerGroup);
-                map.addLayer(pointsLayerGroup);
-                map.addLayer(ellipseLayerGroup);
-                isSummaryMode = false;
-            }
-
-            pointsLayerGroup.clearLayers();
-            ellipseLayerGroup.clearLayers();
-            trackLayerGroup.clearLayers(); // 切換年份時，自動清空畫布上的路徑
-
-            const data = yearlyData[index];
-            currentDisplayedYear = data.year; 
-
-            let ensoText = data.enso === 'ElNino' ? ' (聖嬰年)' : data.enso === 'LaNina' ? ' (反聖嬰年)' : ' (正常年)';
-            document.getElementById('yearDisplay').innerText = `目前顯示：${data.year} ${ensoText}`;
-
-            // 更新下拉式選單內容
-            const trackSelect = document.getElementById('typhoonSelect');
-            trackSelect.disabled = false;
-            updateTrackDropdown(data.year);
-
-            // ✨ 新增邏輯：檢查並繼承「顯示全部路徑」的狀態
-            if (isShowingAllTracks) {
-                let hasAllOption = Array.from(trackSelect.options).some(opt => opt.value === 'all');
-
-                if (hasAllOption) {
-                    trackSelect.value = 'all';
-                    // 手動觸發 change 事件，繪製新年度的全部路徑
-                    trackSelect.dispatchEvent(new Event('change')); 
-                } else {
-                    isShowingAllTracks = false; // 該年無資料，重置狀態
-                }
-            }
-
-            let latSum = 0, lonSum = 0;
-            data.points.forEach(p => {
-                let radiusSize = p.wind * 0.4;
-                let tooltipContent = `<div class="tooltip-custom"><b>${p.name}</b><br>風速: ${p.wind} m/s</div>`;
-
-                L.circleMarker([p.lat, p.lon], {
-                    radius: radiusSize, color: getEnsoColor(data.enso), fillColor: getEnsoColor(data.enso),
-                    fillOpacity: 0.5, weight: 1
-                }).bindTooltip(tooltipContent).addTo(pointsLayerGroup);
-
-                latSum += p.lat; lonSum += p.lon;
-            });
-
-            if (data.points.length > 1) {
-                let centerLat = latSum / data.points.length;
-                let centerLon = lonSum / data.points.length;
-                let varLat = 0, varLon = 0;
-                data.points.forEach(p => {
-                    varLat += Math.pow(p.lat - centerLat, 2); varLon += Math.pow(p.lon - centerLon, 2);
-                });
-                let stdDevLat = Math.sqrt(varLat / data.points.length);
-                let stdDevLon = Math.sqrt(varLon / data.points.length);
-
-                let ellipsePoints = [];
-                for (let i = 0; i <= 360; i += 5) {
-                    let rad = i * Math.PI / 180;
-                    ellipsePoints.push([centerLat + stdDevLat * Math.sin(rad), centerLon + stdDevLon * Math.cos(rad)]);
-                }
-
-                L.polygon(ellipsePoints, {
-                    color: getEnsoColor(data.enso), fillColor: getEnsoColor(data.enso),
-                    fillOpacity: 0.1, weight: 2, dashArray: '5, 5', interactive: false
-                }).addTo(ellipseLayerGroup);
-            }
-        }
-
-        // 獨立繪製單一颱風路徑的函式
-        function drawSingleTrack(targetData, allLatLngsCollector) {
-            const trackLatLngs = targetData.map(point => {
-                allLatLngsCollector.push([point.lat, point.lon]); 
-                return [point.lat, point.lon];
-            });
-
-            L.polyline(trackLatLngs, { color: '#FFFFFF', weight: 2, dashArray: '4, 6', opacity: 0.6 }).addTo(trackLayerGroup);
-
-            targetData.forEach(point => {
-                let radiusSize = point.tokyo_wind * 0.4;
-                let pointColor = getColorByLevel(point.level);
-                let tooltipContent = `
-                    <div class="track-tooltip">
-                        <b>${point.name} (${point.season})</b><br>
-                        <span class="level-badge" style="background-color: ${pointColor};">${point.level}</span><br>
-                        時間：${point.iso_time}<br>
-                        風速：${point.tokyo_wind} m/s<br>
-                        氣壓：${point.tokyo_pres} hPa
-                    </div>
-                `;
-                L.circleMarker([point.lat, point.lon], {
-                    radius: radiusSize, color: pointColor, fillColor: pointColor, fillOpacity: 0.8, weight: 1.5
-                }).bindTooltip(tooltipContent).addTo(trackLayerGroup);
-            });
-        }
-
-        function switchTrack() {
-            trackLayerGroup.clearLayers();
-            const selectedValue = document.getElementById('typhoonSelect').value;
-            
-            // ✨ 新增邏輯：更新全域變數記憶狀態
-            if (selectedValue === 'all') {
-                isShowingAllTracks = true;
-            } else {
-                isShowingAllTracks = false; 
-            }
-
-            if (selectedValue === 'none') return;
-
-            let allLatLngsToFit = [];
-
-            if (selectedValue === 'all') {
-                // 找出當年所有的路徑並全部畫出
-                const availableTracks = Object.keys(allTyphoonTracks).filter(key => allTyphoonTracks[key][0].season === currentDisplayedYear);
-                availableTracks.forEach(trackKey => {
-                    drawSingleTrack(allTyphoonTracks[trackKey], allLatLngsToFit);
-                });
-            } else {
-                // 畫出單一指定的颱風
-                const targetData = allTyphoonTracks[selectedValue];
-                if (targetData) drawSingleTrack(targetData, allLatLngsToFit);
-            }
-
-            // 對焦至(所有)軌跡
-            if (allLatLngsToFit.length > 0) {
-                map.fitBounds(L.polyline(allLatLngsToFit).getBounds(), { padding: [50, 50], maxZoom: 7 });
-            }
-        }
-
-        function showAllYears30() {
-            if (yearlyData.length === 0) return;
-            isSummaryMode = true;
-
-            map.removeLayer(pointsLayerGroup);
-            map.removeLayer(ellipseLayerGroup);
-            trackLayerGroup.clearLayers(); // 隱藏路徑
-            map.addLayer(summaryLayerGroup);
-            summaryLayerGroup.clearLayers();
-
-            document.getElementById('yearDisplay').innerText = '目前顯示：30年中心點總覽';
-
-            // 30年模式停用選單
-            const select = document.getElementById('typhoonSelect');
-            select.innerHTML = '<option value="none">三十年總覽模式不顯示路徑</option>';
-            select.disabled = true;
-
-            yearlyData.forEach(data => {
-                if (data.points.length === 0) return;
-                let latSum = 0, lonSum = 0;
-                data.points.forEach(p => { latSum += p.lat; lonSum += p.lon; });
-                let centerLat = latSum / data.points.length;
-                let centerLon = lonSum / data.points.length;
-                let crossColor = getEnsoColor(data.enso);
-
-                let crossIcon = L.divIcon({
-                    className: 'custom-cross',
-                    html: `<div style="color: ${crossColor}; font-size: 24px; font-weight: bold; line-height: 1; text-align: center; text-shadow: 1px 1px 2px #000;">+</div>`,
-                    iconSize: [24, 24], iconAnchor: [12, 12]
-                });
-
-                L.marker([centerLat, centerLon], { icon: crossIcon }).bindTooltip(`${data.year} 中心點`).addTo(summaryLayerGroup);
-            });
-        }
-
-        function nextYear() {
-            if (yearlyData.length === 0) return;
-            currentIndex = (currentIndex + 1) % yearlyData.length;
-            loadYear(currentIndex);
-        }
-
-        function prevYear() {
-            if (yearlyData.length === 0) return;
-            currentIndex = (currentIndex - 1 + yearlyData.length) % yearlyData.length;
-            loadYear(currentIndex);
-        }
-
         Papa.parse(csvUrl, {
             download: true, header: true, skipEmptyLines: true,
             complete: function (results) {
-                console.log("資料下載完成！");
-                yearlyData = processGoogleSheetsData(results.data);
-                if (yearlyData.length > 0) loadYear(0);
-                else document.getElementById('yearDisplay').innerText = '資料載入失敗或無有效資料。';
+                let yearsSet = new Set();
+
+                results.data.forEach(row => {
+                    let name = row['颱風名稱'];
+                    if (!name || name.toUpperCase() === 'UNNAMED') return;
+
+                    let wind = parseFloat(row['颱風生命期間中心最大風速(m/s)']);
+                    if (isNaN(wind)) return;
+
+                    let year = parseInt(String(row['編號']).substring(0, 4));
+                    if (isNaN(year)) return;
+                    yearsSet.add(year);
+
+                    let rawEnso = row['聖嬰/反聖嬰'];
+                    let ensoState = 'Neutral';
+                    if (rawEnso) {
+                        if (rawEnso.includes('反') || rawEnso.toLowerCase().includes('la')) ensoState = 'LaNina';
+                        else if (rawEnso.includes('聖') || rawEnso.toLowerCase().includes('el')) ensoState = 'ElNino';
+                    }
+                    let typhoonId = row['編號'];
+                    if (typhoonId) {
+                        // 確保轉為字串後，擷取最前面的 4 個字元 (例如 "200801" -> "2008")
+                        let rowYear = String(typhoonId).substring(0, 4);
+                        yearToEnsoMap[rowYear] = ensoState;
+                    }
+
+                    let cluster = row['路徑分群'] || '未分類';
+                    if (cluster !== '未分類' && cluster !== '') uniqueClusters.add(cluster);
+
+                    let track = [];
+                    if (row['路徑']) {
+                        try {
+                            let cleanStr = row['路徑'].replace(/NaN/g, 'null');
+                            track = JSON.parse(cleanStr);
+                        } catch (e) {
+                            console.error(`解析路徑失敗 (${name}):`, e);
+                        }
+                    }
+
+                    parsedData.push({
+                        year: year, name: name, enso: ensoState, cluster: cluster,
+                        lat: parseFloat(row['生成緯度（N）']), lon: parseFloat(row['生成經度（E）']),
+                        wind: wind, track: track
+                    });
+                });
+
+                uniqueYears = Array.from(yearsSet).sort((a, b) => a - b);
+                initUI();
             }
         });
+
+        // ==========================================
+        // 3. UI 初始化與事件綁定
+        // ==========================================
+        function initUI() {
+            // 初始化分群下拉選單
+            const clusterSelect = document.getElementById('cluster-select');
+            Array.from(uniqueClusters).sort().forEach(c => {
+                let opt = document.createElement('option');
+                opt.value = c; opt.text = `📌 分類過濾：${c}`;
+                clusterSelect.appendChild(opt);
+            });
+
+            // 初始化時間播放軸
+            const yearSlider = document.getElementById('year-slider');
+            const yearDisplay = document.getElementById('year-display');
+
+            if (uniqueYears.length > 0) {
+                let minYear = Math.min(...uniqueYears);
+                let maxYear = Math.max(...uniqueYears);
+
+                yearSlider.min = minYear;
+                yearSlider.max = maxYear;
+                yearSlider.value = minYear;
+
+                filterValue = minYear;
+                yearDisplay.innerText = `${minYear} 年`;
+
+                updateStatusText();
+                renderMap();
+            } else {
+                document.getElementById('status-display').innerText = '資料庫無有效資料';
+            }
+
+            // --- 播放軸與時間按鈕事件 ---
+            yearSlider.addEventListener('input', (e) => {
+                let y = parseInt(e.target.value);
+                yearDisplay.innerText = `${y} 年`;
+                filterType = 'year';
+                filterValue = y;
+                updateStatusText();
+                renderMap();
+            });
+
+            document.getElementById('btn-prev-year').onclick = () => {
+                let current = parseInt(yearSlider.value);
+                if (current > parseInt(yearSlider.min)) {
+                    yearSlider.value = current - 1;
+                    yearSlider.dispatchEvent(new Event('input')); // 觸發更新
+                }
+            };
+            document.getElementById('btn-next-year').onclick = () => {
+                let current = parseInt(yearSlider.value);
+                if (current < parseInt(yearSlider.max)) {
+                    yearSlider.value = current + 1;
+                    yearSlider.dispatchEvent(new Event('input')); // 觸發更新
+                }
+            };
+
+            // 氣候快捷按鈕
+            document.getElementById('btn-elnino').onclick = () => setClimate('ElNino');
+            document.getElementById('btn-neutral').onclick = () => setClimate('Neutral');
+            document.getElementById('btn-lanina').onclick = () => setClimate('LaNina');
+
+            // 圖層模式 (單選題) 切換
+            document.querySelectorAll('input[name="displayMode"]').forEach(r => {
+                r.onchange = (e) => {
+                    displayMode = e.target.value;
+                    renderMap();
+                };
+            });
+
+            // 分群過濾切換
+            clusterSelect.onchange = (e) => {
+                clusterFilter = e.target.value;
+                renderMap();
+            };
+            // 👇 新增這段：單一颱風過濾切換
+            document.getElementById('typhoon-select').onchange = (e) => {
+                typhoonFilter = e.target.value;
+                renderMap();
+            };
+        }
+
+        function setClimate(clim) {
+            filterType = 'climate';
+            filterValue = clim;
+            document.getElementById('year-display').innerText = '氣候模式'; // 清除年份顯示
+            updateStatusText();
+            renderMap();
+        }
+
+        function updateStatusText() {
+            let text = "";
+            let clusterText = clusterFilter === 'all' ? '' : ` | 軌跡分類：${clusterFilter}`;
+
+            if (filterType === 'year') {
+                // 從剛才建立的字典中，查出該年的 ENSO 狀態（若因故查不到，預設顯示正常年）
+                let yearEnso = yearToEnsoMap[filterValue] || 'Neutral';
+
+                // 轉換為中文介面顯示
+                let ensoName = '';
+                if (yearEnso === 'ElNino') {
+                    ensoName = '聖嬰年';
+                } else if (yearEnso === 'LaNina') {
+                    ensoName = '反聖嬰年';
+                } else {
+                    ensoName = '正常年';
+                }
+
+                text = `目前顯示：${filterValue}年（${ensoName}）${clusterText}`;
+
+            } else {
+                // 點擊底部氣候按鈕，依據氣候篩選時的顯示
+                let ensoName = '';
+                if (filterValue === 'ElNino') {
+                    ensoName = '所有聖嬰年';
+                } else if (filterValue === 'LaNina') {
+                    ensoName = '所有反聖嬰年';
+                } else {
+                    ensoName = '所有正常年';
+                }
+
+                text = `目前顯示：${ensoName}${clusterText}`;
+            }
+
+            document.getElementById('status-display').innerText = text;
+        }
+        // ==========================================
+        // 4. 地圖渲染核心邏輯
+        // ==========================================
+        function getEnsoColor(ensoState) {
+            if (ensoState === 'ElNino') return '#FF4444';
+            if (ensoState === 'LaNina') return '#4488FF';
+            return '#41ab5d';
+        }
+        function getColorByLevel(level) {
+            if (!level) return '#AAAAAA';
+            if (level.includes('強烈')) return '#FF4444';
+            if (level.includes('中度')) return '#FFAA00';
+            if (level.includes('輕度')) return '#4488FF';
+            return '#AAAAAA';
+        }
+        function getGridColor(count, maxCount, enso) {
+            let ratio = count / maxCount;
+            if (enso === 'ElNino') {
+                if (ratio > 0.8) return '#800026'; if (ratio > 0.6) return '#E31A1C';
+                if (ratio > 0.4) return '#FD8D3C'; if (ratio > 0.2) return '#FEB24C'; return '#FFEDA0';
+            } else if (enso === 'LaNina') {
+                if (ratio > 0.8) return '#08306B'; if (ratio > 0.6) return '#2171B5';
+                if (ratio > 0.4) return '#6BAED6'; if (ratio > 0.2) return '#BDD7E7'; return '#EFF3FF';
+            } else {
+                if (ratio > 0.8) return '#005a32'; if (ratio > 0.6) return '#238b45';
+                if (ratio > 0.4) return '#41ab5d'; if (ratio > 0.2) return '#a1d99b'; return '#edf8e9';
+            }
+        }
+        function getAbsoluteGridColor(value) {
+            // 這裡的門檻值(150, 100, 50...)是基於目前的 ACE 能量指數來抓取的範圍。
+            // 如果您後續調整了公式，可以直接來這裡修改門檻。
+            if (value >= 300) return '#4d051a';
+            if (value >= 150) return '#800026'; // 極強危險區：深紫紅
+            if (value >= 100) return '#BD0026'; // 強危險區：深紅
+            if (value >= 50) return '#E31A1C'; // 高度警戒：紅
+            if (value >= 20) return '#FC4E2A'; // 中度警戒：橘紅
+            if (value >= 10) return '#FD8D3C'; // 潛在熱區：橘
+            return '#fcd29a';                   // 邊緣區：淺橘黃
+        }
+
+        function renderMap() {
+            pointsLayer.clearLayers();
+            tracksLayer.clearLayers();
+            heatmapLayer.clearLayers();
+
+            // 1. 第一層過濾 (時間與分群)，取得「基礎池 (Base Pool)」
+            let basePool = parsedData.filter(d => {
+                let timeMatch = (filterType === 'year') ? (d.year === filterValue) : (d.enso === filterValue);
+                let clusterMatch = (clusterFilter === 'all') ? true : (d.cluster === clusterFilter);
+                return timeMatch && clusterMatch;
+            });
+
+            // 2. 動態更新「單一颱風選單」(只在時間或分群條件改變時才重新整理選單)
+            let currentBasePoolKey = `${filterType}_${filterValue}_${clusterFilter}`;
+            if (lastBasePoolKey !== currentBasePoolKey) {
+                const selectEl = document.getElementById('typhoon-select');
+                selectEl.innerHTML = '<option value="all">▶ 顯示範圍內所有颱風 (All)</option>';
+                
+                basePool.forEach(d => {
+                    let opt = document.createElement('option');
+                    // 為了避免同名颱風，我們使用 "年份_名稱" 作為唯一值
+                    opt.value = `${d.year}_${d.name}`;
+                    opt.text = `${d.year} - ${d.name}`;
+                    selectEl.appendChild(opt);
+                });
+                
+                selectEl.value = 'all';
+                typhoonFilter = 'all';
+                lastBasePoolKey = currentBasePoolKey;
+            }
+
+            // 3. 第二層過濾 (從基礎池中篩選出指定的單一颱風)
+            let pool = basePool.filter(d => {
+                return (typhoonFilter === 'all') ? true : (`${d.year}_${d.name}` === typhoonFilter);
+            });
+
+            if (pool.length === 0) return;
+
+            let dominantEnso = filterType === 'climate' ? filterValue : pool[0].enso;
+            let mainColor = getEnsoColor(dominantEnso);
+
+            if (displayMode === 'genesis') {
+                let latSum = 0, lonSum = 0;
+                pool.forEach(d => {
+                    if (isNaN(d.lat) || isNaN(d.lon)) return;
+                    L.circleMarker([d.lat, d.lon], { radius: d.wind * 0.4, color: mainColor, fillColor: mainColor, fillOpacity: 0.5, weight: 1 })
+                        .bindTooltip(`<div class="tooltip-custom"><b>${d.name}</b><br>年份: ${d.year}<br>風速: ${d.wind} m/s</div>`)
+                        .addTo(pointsLayer);
+                    latSum += d.lat; lonSum += d.lon;
+                });
+
+                if (pool.length > 0) {
+                    let meanLat = latSum / pool.length, meanLon = lonSum / pool.length;
+                    let crossIcon = L.divIcon({ className: 'custom-cross', html: `<div style="color: ${mainColor}; font-size: 24px; font-weight: bold; text-shadow: 1px 1px 2px #000;">+</div>`, iconSize: [24, 24], iconAnchor: [12, 12] });
+                    L.marker([meanLat, meanLon], { icon: crossIcon }).bindTooltip(`平均生成重心`).addTo(pointsLayer);
+                }
+            }
+            else if (displayMode === 'tracks') {
+                pool.forEach(d => {
+                    if (!d.track || d.track.length === 0) return;
+                    let latlngs = [];
+                    d.track.forEach(pt => {
+                        let plat = parseFloat(pt.lat), plon = parseFloat(pt.lon);
+                        if (!isNaN(plat) && !isNaN(plon)) {
+                            latlngs.push([plat, plon]);
+                            let ptColor = getColorByLevel(pt.level);
+                            let windStr = pt.tokyo_wind !== null ? pt.tokyo_wind : '無資料';
+                            L.circleMarker([plat, plon], { radius: (parseFloat(pt.tokyo_wind) || 15) * 0.4, color: ptColor, fillColor: ptColor, fillOpacity: 0.8, weight: 1.5 })
+                                .bindTooltip(`<div class="track-tooltip"><b>${d.name} (${d.year})</b><br>風速: ${windStr} m/s</div>`)
+                                .addTo(tracksLayer);
+                        }
+                    });
+                    L.polyline(latlngs, { color: '#FFFFFF', weight: 2, dashArray: '4, 6', opacity: 0.6 }).addTo(tracksLayer);
+                });
+            }
+            else if (displayMode === 'heatmap') {
+                let gridWeights = {};
+                pool.forEach(d => {
+                    if (!d.track || d.track.length === 0) return;
+
+                    // 記錄單一颱風在各網格中的「最高能量」
+                    let localWeights = {};
+
+                    d.track.forEach(pt => {
+                        let windSpeed = 15; // 預設最低風速 (熱帶低壓邊緣)
+
+                        // 1. 取得風速數值
+                        if (pt.tokyo_wind && !isNaN(parseFloat(pt.tokyo_wind))) {
+                            windSpeed = parseFloat(pt.tokyo_wind);
+                        } else if (pt.level) {
+                            // 若無具體風速，則依據級別賦予典型風速中位數 (m/s)
+                            if (pt.level.includes('強烈')) windSpeed = 55;
+                            else if (pt.level.includes('中度')) windSpeed = 40;
+                            else if (pt.level.includes('輕度')) windSpeed = 20;
+                        }
+
+                        // 2. 計算類 ACE 能量指標 (風速的平方)
+                        // 除以 100 是為了縮放數值，讓最終顯示的積分不會大到難以閱讀
+                        let energy = Math.pow(windSpeed, 2) / 100;
+
+                        let plat = parseFloat(pt.lat), plon = parseFloat(pt.lon);
+                        if (!isNaN(plat) && !isNaN(plon)) {
+                            let latG = Math.floor(plat / 2) * 2, lonG = Math.floor(plon / 2) * 2;
+                            let gKey = `${latG}_${lonG}`;
+
+                            // 保留該颱風在該網格內的「最大能量值」
+                            if (!localWeights[gKey] || localWeights[gKey] < energy) {
+                                localWeights[gKey] = energy;
+                            }
+                        }
+                    });
+
+                    // 3. 將該颱風的能量累加到全局網格中
+                    for (let k in localWeights) {
+                        gridWeights[k] = (gridWeights[k] || 0) + localWeights[k];
+                    }
+                });
+
+                let counts = Object.values(gridWeights);
+                let maxCount = counts.length > 0 ? Math.max(...counts) : 1;
+                if (maxCount < 1) maxCount = 1;
+
+                // 不再需要計算 maxCount，全憑絕對數值說話
+                for (let key in gridWeights) {
+                    let [lat, lon] = key.split('_').map(Number);
+                    let count = gridWeights[key];
+
+                    // 過濾掉能量過低的碎點
+                    if (count <= 2) continue;
+
+                    // 1 & 2. 不分 ENSO，全部套用基於「絕對數值」的顏色
+                    let gridColor = getAbsoluteGridColor(count);
+
+                    // 透明度也改用絕對數值計算，並設定上限為 0.9、下限為 0.2
+                    // 假設數值 150 為透明度封頂基準
+                    let opacity = Math.min(0.2 + (count / 150) * 0.7, 0.9);
+
+                    L.rectangle([[lat, lon], [lat + 2, lon + 2]], {
+                        color: gridColor,
+                        weight: 1,
+                        fillColor: gridColor,
+                        fillOpacity: opacity
+                    })
+                        .bindTooltip(`座標: ${lat}°N, ${lon}°E<br>累積能量指數 (ACE): <b>${count.toFixed(1)}</b>`)
+                        .addTo(heatmapLayer);
+                }
+            }
+            // ... (前方保留原本的 displayMode === 'heatmap' 邏輯) ...
+            else if (displayMode === 'cluster') {
+                // 1. 將資料依據 cluster 分組與計算總數
+                let clusterGroups = {};
+                let totalValidTyphoons = 0; 
+
+                pool.forEach(d => {
+                    if(!d.track || d.track.length < 3) return;
+                    if(d.cluster === '未分類' || d.cluster === '') return;
+                    if(!clusterGroups[d.cluster]) clusterGroups[d.cluster] = [];
+                    clusterGroups[d.cluster].push(d);
+                    totalValidTyphoons++; 
+                });
+
+                // 2. 處理每一群 (直接繪製加深透明度的個別路徑)
+                for (let cName in clusterGroups) {
+                    let cColor = clusterColorMap[cName] || '#FFFFFF'; 
+                    let cPool = clusterGroups[cName];
+                    let count = cPool.length;
+                    
+                    // 💡 計算此分類的佔比
+                    let ratio = count / totalValidTyphoons;
+                    let percentage = (ratio * 100).toFixed(1);
+                    
+                    // 💡 動態粗細微調：因為是畫出所有線條，為了避免畫面糊成一團，
+                    // 基礎粗細設為 2，主流路徑稍微加粗到 6~8 左右
+                    let dynamicWeight = 1 + (ratio * 6);
+
+                    // 畫出該群所有的「實體路線」
+                    cPool.forEach(d => {
+                        let latlngs = d.track.map(pt => [parseFloat(pt.lat), parseFloat(pt.lon)]).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+                        
+                        if(latlngs.length >= 2) {
+                            // 💡 關鍵改動：opacity 從 0.15 大幅調深至 0.6，且加上專屬的 Hover 提示框
+                            L.polyline(latlngs, { color: cColor, weight: dynamicWeight, opacity: 0.6 })
+                                .bindTooltip(
+                                    `<b>${d.name} (${d.year})</b><br>` + 
+                                    `分類: ${cName}<br>` + 
+                                    `該群佔比: <b>${percentage}%</b>`, 
+                                    {sticky: true}
+                                )
+                                .addTo(tracksLayer);
+                        }
+                    });
+                }
+            }
+        }
+        // ==========================================
+        // 💡 新增：JS 版軌跡插值函數 (將軌跡統一拉伸為 20 個點)
+        // ==========================================
+        function interpolateTrackJS(latlngs, numPoints = 20) {
+            if (latlngs.length < 2) return null;
+
+            let oldSteps = latlngs.map((_, i) => i / (latlngs.length - 1));
+            let newSteps = Array.from({ length: numPoints }, (_, i) => i / (numPoints - 1));
+            let res = [];
+
+            for (let ns of newSteps) {
+                let idx = oldSteps.findIndex(s => s >= ns);
+                if (idx === 0) {
+                    res.push([...latlngs[0]]);
+                } else {
+                    let s0 = oldSteps[idx - 1], s1 = oldSteps[idx];
+                    let p0 = latlngs[idx - 1], p1 = latlngs[idx];
+                    let t = (ns - s0) / (s1 - s0);
+                    let lat = p0[0] + t * (p1[0] - p0[0]);
+                    let lon = p0[1] + t * (p1[1] - p0[1]);
+                    res.push([lat, lon]);
+                }
+            }
+            return res;
+        }
+
+        // 7 大分類的固定調色盤 (保持視覺一致性)
+        const clusterColorMap = {
+            '菲律賓南海橫穿': '#e6194B',        // 紅色
+            '馬紹爾－日本東南轉向': '#4363d8',    // 藍色
+            '小笠原－日本東方轉向': '#3cb44b',        // 綠色
+            '馬里亞納低緯度': '#911eb4',      // 紫色
+            '東海': '#f58231',        // 橘色
+            '南海/菲律賓近海': '#42d4f4',       // 青色
+            '近岸轉向': '#f032e6',        // 洋紅色
+            '未分類': '#aaaaaa'                          // 灰色 (防呆)
+        };
     </script>
 </body>
 
